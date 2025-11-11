@@ -18,6 +18,8 @@ from .utils.base_model import dynamic_load
 from .utils.io import list_h5_names, read_image
 from .utils.parsers import parse_image_lists
 
+import os
+
 """
 A set of standard configurations that can be directly selected from the command
 line using their name. Each is a dictionary with the following entries:
@@ -238,7 +240,15 @@ def main(
     image_list: Optional[Union[Path, List[str]]] = None,
     feature_path: Optional[Path] = None,
     overwrite: bool = False,
+    mask_dir: Optional[Path] = None,
+    mask_thresh: int = 0, # other option is 128
+    invert_mask: bool = False,
+    return_pred = False,
+    do_erode = False,
+    morph_kernel = 3,
+    morph_iters = 1,
 ) -> Path:
+
     logger.info(
         "Extracting local features with configuration:" f"\n{pprint.pformat(conf)}"
     )
@@ -262,6 +272,10 @@ def main(
     loader = torch.utils.data.DataLoader(
         dataset, num_workers=1, shuffle=False, pin_memory=True
     )
+    
+    if return_pred:
+        data_dict = {}
+
     for idx, data in enumerate(tqdm(loader)):
         name = dataset.names[idx]
         pred = model({"image": data["image"].to(device, non_blocking=True)})
@@ -272,6 +286,24 @@ def main(
             size = np.array(data["image"].shape[-2:][::-1])
             scales = (original_size / size).astype(np.float32)
             pred["keypoints"] = (pred["keypoints"] + 0.5) * scales[None] - 0.5
+            
+            if mask_dir is not None:
+                mask = cv2.imread(str(mask_dir / os.path.basename(name)).replace('.jpg', '.png'))[:, :, 0]
+                mask = (mask > mask_thresh).astype(np.uint8)
+               
+                if invert_mask:
+                    mask = 1 - mask
+
+                if do_erode:
+                    kernel = np.ones((morph_kernel, morph_kernel), np.uint8)
+                    mask = cv2.erode(mask, kernel, iterations=morph_iters)
+                
+
+                valid_keypoint = mask[pred['keypoints'][:, 1].astype('int'), pred['keypoints'][:, 0].astype('int')] > 0
+                pred['keypoints'] = pred['keypoints'][valid_keypoint > 0]
+                pred['descriptors'] = pred['descriptors'][:, valid_keypoint > 0]
+                pred['keypoint_scores'] = pred['keypoint_scores'][valid_keypoint > 0]
+
             if "scales" in pred:
                 pred["scales"] *= scales.mean()
             # add keypoint uncertainties scaled to the original resolution
@@ -301,10 +333,17 @@ def main(
                     del grp, fd[name]
                 raise error
 
-        del pred
+        if not return_pred:
+            del pred
+        else:
+            data_dict[name] = pred
 
     logger.info("Finished exporting features.")
-    return feature_path
+
+    if not return_pred:
+        return feature_path
+    else:
+        return feature_path, data_dict
 
 
 if __name__ == "__main__":

@@ -66,6 +66,8 @@ def run_reconstruction(
     image_dir: Path,
     verbose: bool = False,
     options: Optional[Dict[str, Any]] = None,
+    input_path: str = '',
+    use_glomap=False,
 ) -> pycolmap.Reconstruction:
     models_path = sfm_dir / "models"
     models_path.mkdir(exist_ok=True, parents=True)
@@ -73,16 +75,21 @@ def run_reconstruction(
     if options is None:
         options = {}
     options = {"num_threads": min(multiprocessing.cpu_count(), 16), **options}
-    with OutputCapture(verbose):
-        with pycolmap.ostream():
-            reconstructions = pycolmap.incremental_mapping(
-                database_path, image_dir, models_path, options=options
-            )
 
-    if len(reconstructions) == 0:
-        logger.error("Could not reconstruct any model!")
-        return None
-    logger.info(f"Reconstructed {len(reconstructions)} model(s).")
+    if not use_glomap:
+        with OutputCapture(verbose):
+            with pycolmap.ostream():
+                reconstructions = pycolmap.incremental_mapping(
+                    database_path, image_dir, models_path, options=options,
+                    input_path=input_path
+                )
+
+        if len(reconstructions) == 0:
+            logger.error("Could not reconstruct any model!")
+            return None
+        logger.info(f"Reconstructed {len(reconstructions)} model(s).")
+    else:
+        raise RuntimeError('not supported yet')
 
     largest_index = None
     largest_num_images = 0
@@ -92,14 +99,19 @@ def run_reconstruction(
             largest_index = index
             largest_num_images = num_images
     assert largest_index is not None
-    logger.info(
-        f"Largest model is #{largest_index} " f"with {largest_num_images} images."
-    )
+    logger.info(f"Largest model is #{largest_index} with {largest_num_images} images.")
 
-    for filename in ["images.bin", "cameras.bin", "points3D.bin"]:
-        if (sfm_dir / filename).exists():
-            (sfm_dir / filename).unlink()
-        shutil.move(str(models_path / str(largest_index) / filename), str(sfm_dir))
+    # Save the largest reconstruction directly to sfm_dir using pycolmap
+    sfm_dir.mkdir(parents=True, exist_ok=True)
+    # (Optional) clear existing files so we don’t mix models
+    for filename in ("images.bin", "cameras.bin", "points3D.bin"):
+        p = sfm_dir / filename
+        if p.exists():
+            p.unlink()
+
+    reconstructions[largest_index].write_binary(str(sfm_dir))
+    # or: reconstructions[largest_index].write(str(sfm_dir))  # also writes binary
+
     return reconstructions[largest_index]
 
 
