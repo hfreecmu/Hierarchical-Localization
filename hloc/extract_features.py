@@ -247,6 +247,7 @@ def main(
     do_erode = False,
     morph_kernel = 3,
     morph_iters = 1,
+    resize_fac = None,
 ) -> Path:
 
     logger.info(
@@ -285,10 +286,21 @@ def main(
         if "keypoints" in pred:
             size = np.array(data["image"].shape[-2:][::-1])
             scales = (original_size / size).astype(np.float32)
-            pred["keypoints"] = (pred["keypoints"] + 0.5) * scales[None] - 0.5
+            if not (np.isclose(scales, np.ones_like(scales))).all():
+                # raise RuntimeError('unexptected')
+                print('----------------UNEXPECTED SIZE DIFF------------------')
+                print('----------------UNEXPECTED SIZE DIFF------------------')
+                print('----------------UNEXPECTED SIZE DIFF------------------')
+                pred["keypoints"] = (pred["keypoints"] + 0.5) * scales[None] - 0.5
+            # pred["keypoints"] = (pred["keypoints"] + 0.5) * scales[None] - 0.5
             
             if mask_dir is not None:
                 mask = cv2.imread(str(mask_dir / os.path.basename(name)).replace('.jpg', '.png'))[:, :, 0]
+                if resize_fac is not None and resize_fac != 1.0:
+                    new_h = int(np.round(mask.shape[0] * resize_fac))
+                    new_w = int(np.round(mask.shape[1] * resize_fac))
+                    mask = cv2.resize(mask, (new_w, new_h), interpolation=cv2.INTER_NEAREST)
+
                 mask = (mask > mask_thresh).astype(np.uint8)
                
                 if invert_mask:
@@ -298,7 +310,6 @@ def main(
                     kernel = np.ones((morph_kernel, morph_kernel), np.uint8)
                     mask = cv2.erode(mask, kernel, iterations=morph_iters)
                 
-
                 valid_keypoint = mask[pred['keypoints'][:, 1].astype('int'), pred['keypoints'][:, 0].astype('int')] > 0
                 pred['keypoints'] = pred['keypoints'][valid_keypoint > 0]
                 pred['descriptors'] = pred['descriptors'][:, valid_keypoint > 0]
