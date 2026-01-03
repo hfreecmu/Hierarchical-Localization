@@ -2,6 +2,7 @@ import argparse
 import collections.abc as collections
 from pathlib import Path
 from typing import Optional, Union, List
+import copy
 
 from . import logger
 from .utils.parsers import parse_image_lists
@@ -15,6 +16,7 @@ def main(
     features: Optional[Path] = None,
     overlap: Optional[int] = 10,
     quadratic_overlap: bool = True,
+    to_return = False,
 ):
     if image_list is not None:
         if isinstance(image_list, (str, Path)):
@@ -45,6 +47,8 @@ def main(
     with open(output, "w") as f:
         f.write("\n".join(" ".join([i, j]) for i, j in pairs))
 
+    if to_return:
+        return copy.deepcopy(pairs)
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(
